@@ -2,8 +2,40 @@
 %TAG !u! tag:unity3d.com,2011:
 --- !u!78 &1
 TagManager:
-  serializedVersion: 2
-  tags: []
+  serializedVersion: 3
+  tags:
+  - RightPalm
+  - LeftPalm
+  - Querie_Button
+  - UIAlwaysOnTop
+  - OK_Button
+  - AnnotationMarker
+  - Scalpel
+  - Bonesaw
+  - Drill
+  - Pliers
+  - Mallet
+  - Retractor
+  - RightHand
+  - LeftHand
+  - FemoralMeasureTool
+  - CementGun
+  - RightHandIndex
+  - LeftHandIndex
+  - DrillTower
+  - CementSpatula
+  - Scissors
+  - ToolAttachR
+  - ToolAttachL
+  - Luer
+  - SewingScissors
+  - Cauterizer
+  - ActionTriggerCollider
+  - Cautery
+  - Material_Cloth
+  - Material_Metal
+  - SurgeryRoom
+  - Material_Body_or_Plastic
   layers:
   - Default
   - TransparentFX
@@ -13,26 +45,26 @@ TagManager:
   - UI
   - 
   - 
+  - UserHands
   - 
+  - CameraRig
+  - ModelSkin
+  - ignore All
+  - Tools
   - 
+  - Lights
+  - Mirror
+  - SurgeryRoom
+  - InternalOrgans
+  - ToolsOFF
   - 
-  - 
-  - 
-  - 
-  - 
-  - 
-  - 
-  - 
-  - 
-  - 
-  - 
-  - 
-  - 
-  - 
-  - 
-  - 
-  - 
-  - 
+  - NoTriggerColliderLesson
+  - Reflection1
+  - TriggerColliderLesson
+  - GrabbablePrefabs
+  - AvatarLayer
+  - Areas
+  - XRayBones
   - 
   - 
   - 
@@ -50,27 +82,4 @@ TagManager:
   - Light Layer 5
   - Light Layer 6
   - Light Layer 7
-  - 
-  - 
-  - 
-  - 
-  - 
-  - 
-  - 
-  - 
-  - 
-  - 
-  - 
-  - 
-  - 
-  - 
-  - 
-  - 
-  - 
-  - 
-  - 
-  - 
-  - 
-  - 
-  - 
-  - 
+  m_MigratedRenderPipelines: []
