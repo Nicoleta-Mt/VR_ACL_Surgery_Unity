@@ -3,153 +3,105 @@ using UnityEngine;
 
 /// <summary>
 /// Snappoint — attach to the "Snappoint" GameObject (child of Arthroscope Portal).
-///
-/// Rules:
-///   • Snaps the endoscope ONLY while the user is actively holding it.
-///   • Uses a gentle spring-pull so it feels magnetic, not teleported.
-///   • Pulling hard enough (hand moves beyond breakDistance) releases it smoothly.
-///   • No snap when the endoscope is just floating nearby unattended.
+/// Works with XR Grab Interactable + Rigidbody in VR.
 /// </summary>
 public class Snappoint : MonoBehaviour
 {
     [Header("Snap Settings")]
-    [Tooltip("Radius in which the endoscope starts being attracted (while held).")]
     public float attractDistance = 0.08f;
-
-    [Tooltip("Distance the held hand must travel from the snap centre to break free.")]
-    public float breakDistance = 0.06f;
-
-    [Tooltip("Spring strength pulling the endoscope toward the snap pose while held.")]
-    [Range(1f, 40f)]
-    public float springStrength = 12f;
-
-    [Tooltip("Damping applied to the spring so it doesn't overshoot.")]
-    [Range(0f, 1f)]
-    public float springDamping = 0.85f;
-
-    [Tooltip("Name of the root endoscope GameObject — must match exactly.")]
+    public float breakDistance = 0.10f;
     public string endoscopeName = "endoscope";
 
     [Header("Optional Visuals")]
-    [Tooltip("Highlight shown when the endoscope is close enough to snap (while held).")]
     public GameObject proximityIndicator;
 
-    // ── private state ──────────────────────────────────────────────────────────
-    private Transform           _endoscope;
-    private UnityEngine.XR.Interaction.Toolkit.Interactables.XRGrabInteractable  _grabInteractable;
-
-    private bool    _isSnapping  = false;   // currently being pulled into snap
-    private Vector3 _snapVelocity = Vector3.zero;
-
-    // ── Unity lifecycle ────────────────────────────────────────────────────────
+    // ── private ────────────────────────────────────────────────────────────────
+    private Transform _endoscope;
+    private Rigidbody _rb;
+    private UnityEngine.XR.Interaction.Toolkit.Interactables.XRGrabInteractable _grab;
+    private bool _isSnapped;
 
     void Start()
     {
         GameObject endo = GameObject.Find(endoscopeName);
         if (endo == null)
         {
-            Debug.LogWarning($"[Snappoint] Could not find '{endoscopeName}'. Check the name.");
+            Debug.LogWarning("[Snappoint] Cannot find '" + endoscopeName + "'");
             return;
         }
 
-        _endoscope        = endo.transform;
-        _grabInteractable = endo.GetComponent<UnityEngine.XR.Interaction.Toolkit.Interactables.XRGrabInteractable>();
+        _endoscope = endo.transform;
+        _rb = endo.GetComponent<Rigidbody>();
+        _grab = endo.GetComponent<UnityEngine.XR.Interaction.Toolkit.Interactables.XRGrabInteractable>();
 
-        if (_grabInteractable == null)
-            Debug.LogWarning("[Snappoint] No XRGrabInteractable found on endoscope. " +
-                             "Snap-while-held requires XR Interaction Toolkit.");
+        if (_grab == null)
+            Debug.LogWarning("[Snappoint] No XRGrabInteractable on endoscope.");
+        if (_rb == null)
+            Debug.LogWarning("[Snappoint] No Rigidbody on endoscope.");
 
         if (proximityIndicator != null)
             proximityIndicator.SetActive(false);
     }
 
-    void Update()
+    void FixedUpdate()
     {
-        if (_endoscope == null) return;
+        if (_endoscope == null || _rb == null || _grab == null) return;
 
-        bool held = IsHeld();
+        bool held = _grab.isSelected;
         float dist = Vector3.Distance(_endoscope.position, transform.position);
 
-        // ── proximity indicator (only while held) ─────────────────────────────
+        // Proximity indicator
         if (proximityIndicator != null)
-            proximityIndicator.SetActive(held && !_isSnapping && dist < attractDistance * 1.5f);
+            proximityIndicator.SetActive(held && !_isSnapped && dist < attractDistance * 1.5f);
 
-        // ── only act while the endoscope is being held ────────────────────────
+        // Only act while held
         if (!held)
         {
-            // Released outside snap → just stop attracting
-            if (_isSnapping)
-                ExitSnap();
+            if (_isSnapped) ExitSnap();
             return;
         }
 
-        // ── enter snap zone ───────────────────────────────────────────────────
-        if (!_isSnapping && dist < attractDistance)
+        // Enter snap zone
+        if (!_isSnapped && dist < attractDistance)
             EnterSnap();
 
-        // ── spring pull toward snap pose while snapping ───────────────────────
-        if (_isSnapping)
+        // While snapped — move rb directly to snap pose
+        if (_isSnapped)
         {
-            // Smooth-damp position
-            _endoscope.position = Vector3.SmoothDamp(
-                _endoscope.position,
-                transform.position,
-                ref _snapVelocity,
-                1f / springStrength,          // approx time to reach target
-                Mathf.Infinity,
-                Time.deltaTime);
+            // Move via Rigidbody so XR physics doesn't fight us
+            _rb.MovePosition(Vector3.Lerp(_endoscope.position, transform.position, Time.fixedDeltaTime * 15f));
+            _rb.MoveRotation(Quaternion.Slerp(_endoscope.rotation, transform.rotation, Time.fixedDeltaTime * 15f));
 
-            // Gentle slerp for rotation
-            _endoscope.rotation = Quaternion.Slerp(
-                _endoscope.rotation,
-                transform.rotation,
-                Time.deltaTime * springStrength * springDamping);
+            // Dampen velocity so it doesn't jitter
+            _rb.linearVelocity = _rb.linearVelocity * 0.1f;
+            _rb.angularVelocity = _rb.angularVelocity * 0.1f;
 
-            // ── break-free check: hand pulled beyond breakDistance ────────────
-            float snapDist = Vector3.Distance(_endoscope.position, transform.position);
-            if (snapDist > breakDistance)
-            {
+            // Break free if pulled far enough
+            if (dist > breakDistance)
                 ExitSnap();
-                Debug.Log("[Snappoint] endoscope pulled free.");
-            }
         }
     }
 
-    // ── state helpers ──────────────────────────────────────────────────────────
-
-    private void EnterSnap()
+    void EnterSnap()
     {
-        _isSnapping   = true;
-        _snapVelocity = Vector3.zero;
-
+        _isSnapped = true;
         if (proximityIndicator != null)
             proximityIndicator.SetActive(false);
-
-        Debug.Log("[Snappoint] endoscope entering snap — spring engaged.");
+        Debug.Log("[Snappoint] Snapped.");
     }
 
-    private void ExitSnap()
+    void ExitSnap()
     {
-        _isSnapping = false;
-        Debug.Log("[Snappoint] endoscope left snap zone.");
+        _isSnapped = false;
+        Debug.Log("[Snappoint] Released.");
     }
-
-    private bool IsHeld()
-    {
-        if (_grabInteractable == null) return false;
-        return _grabInteractable.isSelected;
-    }
-
-    // ── editor gizmos ─────────────────────────────────────────────────────────
 
     void OnDrawGizmosSelected()
     {
-        // Attract zone
         Gizmos.color = new Color(0f, 0.8f, 1f, 0.25f);
         Gizmos.DrawSphere(transform.position, attractDistance);
 
-        // Break-free zone (inner — must pull past this)
-        Gizmos.color = new Color(0f, 1f, 0.4f, 0.4f);
+        Gizmos.color = new Color(1f, 0.4f, 0.2f, 0.2f);
         Gizmos.DrawWireSphere(transform.position, breakDistance);
     }
 }
