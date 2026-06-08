@@ -1,0 +1,15 @@
+fileFormatVersion: 2
+guid: d0cf7b6ca0e5149a4928549844026662
+NativeFormatImporter:
+  externalObjects: {}
+  mainObjectFileID: 2100000
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 184187
+  packageName: AR Face Assets
+  packageVersion: 4.0
+  assetPath: Assets/AR face Assets/Face Textures/Robot Face/Materials/Robot_Albedo.mat
+  uploadId: 871108
