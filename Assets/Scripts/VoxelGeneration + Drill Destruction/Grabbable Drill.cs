@@ -1,33 +1,49 @@
 using UnityEngine;
 using UnityEngine.XR.Interaction.Toolkit;
+using UnityEngine.XR.Interaction.Toolkit.Interactables;
+using UnityEngine.InputSystem;
 
-/// <summary>
-/// VRDrillGrabbable — attach to the drill GameObject (NOT the camera/player).
-///
-/// Requirements:
-///   • Add an XRGrabInteractable component to the same GameObject, OR let this
-///     script's Reset() method add one automatically in the Editor.
-///   • The drill must have a Rigidbody and at least one non-trigger Collider.
-///   • XR Interaction Manager must exist in the scene (XRI Toolkit standard setup).
-///
-/// </summary>
-[RequireComponent(typeof(UnityEngine.XR.Interaction.Toolkit.Interactables.XRGrabInteractable))]
+[RequireComponent(typeof(XRGrabInteractable))]
 public class VRDrillGrabbable : MonoBehaviour
 {
-    // ── private state ─────────────────────────────────────────────────────────
-    private UnityEngine.XR.Interaction.Toolkit.Interactables.XRGrabInteractable _grabInteractable;
-    private DrillBit _drillBit;
+    [Header("Input")]
+    [SerializeField] private InputActionReference leftTriggerAction;
+    [SerializeField] private InputActionReference rightTriggerAction;
 
-    // ── Unity messages ────────────────────────────────────────────────────────
+    private XRGrabInteractable _grabInteractable;
+    private DrillBit _drillBit;
+    private bool _isHeld = false;
 
     private void Awake()
     {
-        _grabInteractable = GetComponent<UnityEngine.XR.Interaction.Toolkit.Interactables.XRGrabInteractable>();
+        _grabInteractable = GetComponent<XRGrabInteractable>();
         _drillBit = GetComponentInChildren<DrillBit>() ?? GetComponent<DrillBit>();
 
-        // Subscribe to XRI grab/release events (replaces the E-key logic)
         _grabInteractable.selectEntered.AddListener(OnGrabbed);
         _grabInteractable.selectExited.AddListener(OnReleased);
+    }
+
+    private void OnEnable()
+    {
+        leftTriggerAction?.action.Enable();
+        rightTriggerAction?.action.Enable();
+    }
+
+    private void OnDisable()
+    {
+        leftTriggerAction?.action.Disable();
+        rightTriggerAction?.action.Disable();
+    }
+
+    private void Update()
+    {
+        if (!_isHeld || _drillBit == null) return;
+
+        float leftVal = leftTriggerAction?.action.ReadValue<float>() ?? 0f;
+        float rightVal = rightTriggerAction?.action.ReadValue<float>() ?? 0f;
+        bool triggerPressed = (leftVal > 0.1f) || (rightVal > 0.1f);
+
+        _drillBit.SetDrilling(triggerPressed);
     }
 
     private void OnDestroy()
@@ -37,30 +53,28 @@ public class VRDrillGrabbable : MonoBehaviour
         _grabInteractable.selectExited.RemoveListener(OnReleased);
     }
 
-    // ── grab callbacks (replaces TryPickup / Drop) ────────────────────────────
-
-    /// <summary>Called by XRGrabInteractable when the player grips the drill.</summary>
     private void OnGrabbed(SelectEnterEventArgs args)
     {
+        _isHeld = true;
         if (_drillBit != null)
             _drillBit.isEquipped = true;
     }
 
-    /// <summary>Called by XRGrabInteractable when the player releases the drill.</summary>
     private void OnReleased(SelectExitEventArgs args)
     {
+        _isHeld = false;
         if (_drillBit == null) return;
         _drillBit.isEquipped = false;
-        _drillBit.SetDrilling(false); // stop drilling immediately on release
+        _drillBit.SetDrilling(false);
     }
+
 
     // ── Editor helper ─────────────────────────────────────────────────────────
 #if UNITY_EDITOR
     private void Reset()
     {
-        // Auto-add XRGrabInteractable when this component is first added in Editor
-        if (GetComponent<UnityEngine.XR.Interaction.Toolkit.Interactables.XRGrabInteractable>() == null)
-            gameObject.AddComponent<UnityEngine.XR.Interaction.Toolkit.Interactables.XRGrabInteractable>();
+        if (GetComponent<XRGrabInteractable>() == null)
+            gameObject.AddComponent<XRGrabInteractable>();
     }
 #endif
 }

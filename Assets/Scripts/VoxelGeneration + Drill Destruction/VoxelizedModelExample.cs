@@ -1,8 +1,10 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Rendering;
 using Common.Unity.Drawing;
+using System.Linq;
 
 namespace MarchingCubesProject
 {
@@ -14,6 +16,7 @@ namespace MarchingCubesProject
         public MARCHING_MODE mode = MARCHING_MODE.CUBES;
         public bool smoothNormals = false;
         public bool drawNormals = false;
+        public bool IsReady { get; private set; } = false;
 
         [Header("Voxelization")]
         public GameObject sourceModel;
@@ -29,21 +32,27 @@ namespace MarchingCubesProject
         private List<GameObject> meshes = new List<GameObject>();
         private NormalRenderer normalRenderer;
 
-        void Start()
+        public IEnumerator VoxelizeAsync()
         {
-            if (sourceModel == null) { Debug.LogError("Assign a sourceModel!"); return; }
+            IsReady = false;
+            if (sourceModel == null) { Debug.LogError("Assign a sourceModel!"); yield break; }
 
             Marching marching = mode == MARCHING_MODE.TETRAHEDRON
                 ? (Marching)new MarchingTertrahedron()
                 : new MarchingCubes();
-
             marching.Surface = 0.0f;
 
             voxels = new VoxelArray(width, height, depth);
             modelBounds = GetCompoundBounds(sourceModel);
 
-            FillVoxelsFromModel(voxels, modelBounds);
+            // Wait for physics to register the new collider
+            yield return new WaitForFixedUpdate();
+            yield return new WaitForFixedUpdate();
+
+            yield return FillVoxelsAsync(voxels, modelBounds);
+
             sourceModel.SetActive(false);
+
             var verts = new List<Vector3>();
             var normals = new List<Vector3>();
             var indices = new List<int>();
@@ -55,12 +64,11 @@ namespace MarchingCubesProject
                 for (int i = 0; i < verts.Count; i++)
                 {
                     Vector3 p = verts[i];
-                    float u = p.x / (width - 1.0f);
-                    float v = p.y / (height - 1.0f);
-                    float w = p.z / (depth - 1.0f);
-                    normals.Add(voxels.GetNormal(u, v, w));
+                    normals.Add(voxels.GetNormal(
+                        p.x / (width - 1f),
+                        p.y / (height - 1f),
+                        p.z / (depth - 1f)));
                 }
-
                 normalRenderer = new NormalRenderer();
                 normalRenderer.DefaultColor = Color.red;
                 normalRenderer.Length = 0.25f;
@@ -69,54 +77,50 @@ namespace MarchingCubesProject
 
             RescaleVerts(verts, modelBounds);
 
-            // Create the mesh and store a reference to it for drilling
             GameObject go = CreateMesh32(verts, normals, indices, modelBounds.min);
             drillableMeshFilter = go.GetComponent<MeshFilter>();
-           
-            // Add a MeshCollider so the drill raycast can hit it
             var col = go.AddComponent<MeshCollider>();
             col.sharedMesh = drillableMeshFilter.mesh;
+            IsReady = true;
         }
 
-        private void FillVoxelsFromModel(VoxelArray voxels, Bounds bounds)
+        private IEnumerator FillVoxelsAsync(VoxelArray voxels, Bounds bounds)
         {
             int padding = 1;
             int usableW = width - padding * 2;
             int usableH = height - padding * 2;
             int usableD = depth - padding * 2;
 
-            Vector3 boundsMin = bounds.min;
-            Vector3 boundsSize = bounds.size;
-
-            var cellSize = new Vector3(
-                boundsSize.x / usableW,
-                boundsSize.y / usableH,
-                boundsSize.z / usableD
-            );
+            Vector3 cellSize = new Vector3(
+                bounds.size.x / usableW,
+                bounds.size.y / usableH,
+                bounds.size.z / usableD);
             Vector3 halfCell = cellSize * 0.5f;
 
             bool addedCollider = EnsureMeshCollider(sourceModel);
 
-            // Default everything to air
             for (int x = 0; x < width; x++)
                 for (int y = 0; y < height; y++)
                     for (int z = 0; z < depth; z++)
                         voxels[x, y, z] = 1.0f;
 
-            // Fill only the inner region, leaving the outer padding as air
+            // Yield once per X-slice — keeps frames smooth without too much overhead
             for (int x = 0; x < usableW; x++)
+            {
                 for (int y = 0; y < usableH; y++)
                     for (int z = 0; z < usableD; z++)
                     {
-                        Vector3 worldPos = boundsMin + new Vector3(
+                        Vector3 worldPos = bounds.min + new Vector3(
                             (x + 0.5f) * cellSize.x,
                             (y + 0.5f) * cellSize.y,
-                            (z + 0.5f) * cellSize.z
-                        );
+                            (z + 0.5f) * cellSize.z);
 
                         bool inside = Physics.CheckBox(worldPos, halfCell * 0.99f);
-                        voxels[x + padding, y + padding, z + padding] = inside ? -1.0f : 1.0f;
+                        voxels[x + padding, y + padding, z + padding] = inside ? -1f : 1f;
                     }
+
+                yield return null; // one frame per X-slice
+            }
 
             if (addedCollider)
                 RemoveTemporaryColliders(sourceModel);
@@ -139,12 +143,17 @@ namespace MarchingCubesProject
                 verts[i] = v;
             }
         }
-
-
+        private void Update()
+        {
+            #if Unity_Editor
+             if (Input.GetKeyDown(KeyCode.V))
+                FindObjectOfType<VoxelizationQueue>().Enqueue(this);
+            #endif
+        }
         public void Drill(Vector3 worldPos, float worldRadius)
         {
             Debug.Log($"Drill() called at worldPos: {worldPos}, modelBounds.min: {modelBounds.min}, modelBounds.size: {modelBounds.size}");
-           
+
             int padding = 1;
             int usableW = width - padding * 2;
             int usableH = height - padding * 2;
@@ -223,12 +232,14 @@ namespace MarchingCubesProject
             bool added = false;
             foreach (var mf in root.GetComponentsInChildren<MeshFilter>())
             {
-                if (mf.GetComponent<Collider>() == null)
+                var existing = mf.GetComponent<MeshCollider>();
+                if (existing == null)
                 {
                     var mc = mf.gameObject.AddComponent<MeshCollider>();
                     mc.sharedMesh = mf.sharedMesh;
-                    added = true;
                 }
+                // Mark for cleanup regardless — PoseToVoxel added it, we should remove it
+                added = true;
             }
             return added;
         }

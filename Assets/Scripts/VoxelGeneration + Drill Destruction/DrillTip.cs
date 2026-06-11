@@ -6,8 +6,7 @@ public class DrillTip : MonoBehaviour
     private void Update()
     {
         Collider[] hits = Physics.OverlapSphere(transform.position, 0.3f);
-        foreach (var h in hits)
-            Debug.Log("OverlapSphere hit: " + h.gameObject.name);
+        foreach (var h in hits);
     }
     [Tooltip("Assign the DrillBit component from the parent drill object.")]
     public DrillBit drillBit;
