@@ -1,6 +1,9 @@
 fileFormatVersion: 2
-guid: b4b23523e146e5744998c9dd26929625
-folderAsset: yes
+<<<<<<<< HEAD:Assets/bed.rar.meta
+guid: 834e65d368ccd44f088359c6ad077d8b
+========
+guid: 8cba1d01bf84710449f264c224102f07
+>>>>>>>> main:Assets/_Recovery/0.unity.meta
 DefaultImporter:
   externalObjects: {}
   userData: 
