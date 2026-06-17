@@ -2026,18 +2026,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: e7dd0b5b40db5bd4eb1bbad72114683c, type: 3}
   m_Name: 
   m_EditorClassIdentifier: '::'
-  testActionValue:
-    m_UseReference: 1
-    m_Action:
-      m_Name: Test Action Value
-      m_Type: 0
-      m_ExpectedControlType: 
-      m_Id: 99720c86-6989-4818-927b-66c46e56c790
-      m_Processors: 
-      m_Interactions: 
-      m_SingletonActionBindings: []
-      m_Flags: 0
-    m_Reference: {fileID: 0}
 --- !u!4 &165445772
 Transform:
   m_ObjectHideFlags: 0
@@ -8523,9 +8511,9 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Unity.XR.Interaction.Toolkit.Samples.StarterAssets::SimulationRecorder
   waypoints:
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
+  - {fileID: 1799115352}
+  - {fileID: 1554246386}
+  - {fileID: 589970149}
   participantName: Participant
   simulationType: Arthroscope
   participantGhostColor: {r: 1, g: 0.4, b: 0.1, a: 1}
@@ -8550,9 +8538,9 @@ MonoBehaviour:
   m_EditorClassIdentifier: Unity.XR.Interaction.Toolkit.Samples.StarterAssets::EndoscopePathGuide
   knee: {fileID: 0}
   waypoints:
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
+  - {fileID: 1799115352}
+  - {fileID: 1554246386}
+  - {fileID: 589970149}
   followSpeed: 10
   constrainDistance: 0.25
   tunnelRadius: 0.02
