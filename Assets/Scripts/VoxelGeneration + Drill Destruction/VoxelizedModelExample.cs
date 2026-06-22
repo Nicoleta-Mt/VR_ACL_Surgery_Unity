@@ -1,10 +1,8 @@
-using System;
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Rendering;
 using Common.Unity.Drawing;
-using System.Linq;
 
 namespace MarchingCubesProject
 {
@@ -12,190 +10,309 @@ namespace MarchingCubesProject
 
     public class VoxelizedModelExample : MonoBehaviour
     {
+        [Header("Materials")]
         public Material material;
+        public Material interiorMaterial;
+
+        [Header("Marching Cubes")]
         public MARCHING_MODE mode = MARCHING_MODE.CUBES;
         public bool smoothNormals = false;
-        public bool drawNormals = false;
+
+        [Header("Local Voxel Grid")]
+        public int gridSize = 24;
+        public float roiRadius = 0.08f;
+        public float clipRadiusOffset = 0.01f;
+
         public bool IsReady { get; private set; } = false;
 
-        [Header("Voxelization")]
-        public GameObject sourceModel;
-        public int width = 32;
-        public int height = 32;
-        public int depth = 32;
+        [HideInInspector] public Vector3 drillContactPoint;
+        [HideInInspector] public Mesh bakedMesh;
 
-        // Persistent references needed for drilling
+        private SkinnedMeshRenderer[] _skinnedRenderers;
+        private Animator _animator;
+
         private VoxelArray voxels;
-        private Bounds modelBounds;
+        private Bounds localBounds;
         private MeshFilter drillableMeshFilter;
-
+        private Transform voxelMeshTransform;
         private List<GameObject> meshes = new List<GameObject>();
-        private NormalRenderer normalRenderer;
+
+        // ─────────────────────────────────────────────────────────────
+        // Public API
+        // ─────────────────────────────────────────────────────────────
+
+        public void SetSkinnedRenderers(SkinnedMeshRenderer[] renderers)
+        {
+            _skinnedRenderers = renderers;
+        }
+
+        public void SetAnimator(Animator animator)
+        {
+            _animator = animator;
+        }
 
         public IEnumerator VoxelizeAsync()
         {
             IsReady = false;
-            if (sourceModel == null) { Debug.LogError("Assign a sourceModel!"); yield break; }
 
-            Marching marching = mode == MARCHING_MODE.TETRAHEDRON
-                ? (Marching)new MarchingTertrahedron()
-                : new MarchingCubes();
-            marching.Surface = 0.0f;
+            if (bakedMesh == null)
+            {
+                Debug.LogError("VoxelizedModelExample: bakedMesh is null.");
+                yield break;
+            }
 
-            voxels = new VoxelArray(width, height, depth);
-            modelBounds = GetCompoundBounds(sourceModel);
+            localBounds = new Bounds(drillContactPoint, Vector3.one * roiRadius * 2f);
+            voxels = new VoxelArray(gridSize, gridSize, gridSize);
 
-            // Wait for physics to register the new collider
             yield return new WaitForFixedUpdate();
-            yield return new WaitForFixedUpdate();
-
-            yield return FillVoxelsAsync(voxels, modelBounds);
-
-            sourceModel.SetActive(false);
+            yield return FillVoxelsAsync();
 
             var verts = new List<Vector3>();
             var normals = new List<Vector3>();
             var indices = new List<int>();
 
+            Marching marching = mode == MARCHING_MODE.TETRAHEDRON
+                ? (Marching)new MarchingTertrahedron()
+                : new MarchingCubes();
+            marching.Surface = 0.0f;
             marching.Generate(voxels.Voxels, verts, indices);
 
-            if (smoothNormals)
+            if (verts.Count == 0)
             {
-                for (int i = 0; i < verts.Count; i++)
-                {
-                    Vector3 p = verts[i];
-                    normals.Add(voxels.GetNormal(
-                        p.x / (width - 1f),
-                        p.y / (height - 1f),
-                        p.z / (depth - 1f)));
-                }
-                normalRenderer = new NormalRenderer();
-                normalRenderer.DefaultColor = Color.red;
-                normalRenderer.Length = 0.25f;
-                normalRenderer.Load(verts, normals);
+                Debug.LogWarning("Marching cubes produced no geometry.");
+                yield break;
             }
 
-            RescaleVerts(verts, modelBounds);
+            RescaleVerts(verts);
 
-            GameObject go = CreateMesh32(verts, normals, indices, modelBounds.min);
+            GameObject go = CreateMeshObject("VoxelPatch_Outer", verts, normals, indices, material);
             drillableMeshFilter = go.GetComponent<MeshFilter>();
+            voxelMeshTransform = go.transform;
+
+            yield return null;
+
             var col = go.AddComponent<MeshCollider>();
+            col.convex = true;
+            col.sharedMesh = null;
             col.sharedMesh = drillableMeshFilter.mesh;
+            Debug.Log($"MeshCollider assigned. Verts: {drillableMeshFilter.mesh.vertexCount}");
+
+            if (interiorMaterial != null)
+                CreateMeshObject("VoxelPatch_Interior", verts, normals, indices, interiorMaterial, flipNormals: false);
+
+            UpdateClipShader();
+
             IsReady = true;
+            Debug.Log($"Voxelization complete. localBounds.min={localBounds.min} center={localBounds.center}");
         }
 
-        private IEnumerator FillVoxelsAsync(VoxelArray voxels, Bounds bounds)
+        public void ResetVoxelization()
         {
+            foreach (var go in meshes)
+                Destroy(go);
+
+            meshes.Clear();
+            voxels = null;
+            bakedMesh = null;
+            IsReady = false;
+
+            if (_skinnedRenderers != null)
+                foreach (var smr in _skinnedRenderers)
+                    smr.enabled = true;
+
+            if (_animator != null)
+                _animator.enabled = true;
+        }
+
+        // ─────────────────────────────────────────────────────────────
+        // Drilling
+        // ─────────────────────────────────────────────────────────────
+
+        public void Drill(Vector3 worldPos, float worldRadius)
+        {
+            if (!IsReady) return;
+
             int padding = 1;
-            int usableW = width - padding * 2;
-            int usableH = height - padding * 2;
-            int usableD = depth - padding * 2;
+            int usableSize = gridSize - padding * 2;
+            Vector3 cellSize = localBounds.size / usableSize;
 
-            Vector3 cellSize = new Vector3(
-                bounds.size.x / usableW,
-                bounds.size.y / usableH,
-                bounds.size.z / usableD);
-            Vector3 halfCell = cellSize * 0.5f;
-
-            bool addedCollider = EnsureMeshCollider(sourceModel);
-
-            for (int x = 0; x < width; x++)
-                for (int y = 0; y < height; y++)
-                    for (int z = 0; z < depth; z++)
-                        voxels[x, y, z] = 1.0f;
-
-            // Yield once per X-slice — keeps frames smooth without too much overhead
-            for (int x = 0; x < usableW; x++)
-            {
-                for (int y = 0; y < usableH; y++)
-                    for (int z = 0; z < usableD; z++)
+            bool changed = false;
+            for (int x = 0; x < usableSize; x++)
+                for (int y = 0; y < usableSize; y++)
+                    for (int z = 0; z < usableSize; z++)
                     {
-                        Vector3 worldPos = bounds.min + new Vector3(
+                        if (voxels[x + padding, y + padding, z + padding] >= 0f)
+                            continue;
+
+                        // localBounds.min is already world-space, so this is world-space too
+                        Vector3 voxelWorld = localBounds.min + new Vector3(
                             (x + 0.5f) * cellSize.x,
                             (y + 0.5f) * cellSize.y,
                             (z + 0.5f) * cellSize.z);
 
-                        bool inside = Physics.CheckBox(worldPos, halfCell * 0.99f);
-                        voxels[x + padding, y + padding, z + padding] = inside ? -1f : 1f;
+                        if (Vector3.Distance(voxelWorld, worldPos) <= worldRadius)
+                        {
+                            voxels[x + padding, y + padding, z + padding] = 1.0f;
+                            changed = true;
+                        }
                     }
 
-                yield return null; // one frame per X-slice
-            }
-
-            if (addedCollider)
-                RemoveTemporaryColliders(sourceModel);
+            if (changed)
+                StartCoroutine(RegenerateMesh());
         }
 
-        private void RescaleVerts(List<Vector3> verts, Bounds bounds)
+        // ─────────────────────────────────────────────────────────────
+        // Private helpers
+        // ─────────────────────────────────────────────────────────────
+
+        private IEnumerator FillVoxelsAsync()
         {
             int padding = 1;
-            int usableW = width - padding * 2;
-            int usableH = height - padding * 2;
-            int usableD = depth - padding * 2;
+            int usableSize = gridSize - padding * 2;
+            Vector3 cellSize = localBounds.size / usableSize;
+
+            // Default all to empty
+            for (int x = 0; x < gridSize; x++)
+                for (int y = 0; y < gridSize; y++)
+                    for (int z = 0; z < gridSize; z++)
+                        voxels[x, y, z] = 1f;
+
+            int tempLayer = LayerMask.NameToLayer("TempVoxel");
+            if (tempLayer == -1)
+            {
+                Debug.LogError("TempVoxel layer not found.");
+                yield break;
+            }
+
+            GameObject temp = new GameObject("_TempCollider");
+            temp.layer = tempLayer;
+            temp.AddComponent<MeshFilter>().sharedMesh = bakedMesh;
+            temp.AddComponent<MeshCollider>().sharedMesh = bakedMesh;
+            var rb = temp.AddComponent<Rigidbody>();
+            rb.isKinematic = true;
+
+            yield return new WaitForFixedUpdate();
+
+            int layerMask = 1 << tempLayer;
+            int solidCount = 0;
+
+            for (int x = 0; x < usableSize; x++)
+            {
+                for (int z = 0; z < usableSize; z++)
+                {
+                    float wx = localBounds.min.x + (x + 0.5f) * cellSize.x;
+                    float wz = localBounds.min.z + (z + 0.5f) * cellSize.z;
+
+                    Vector3 rayOrigin = new Vector3(wx, localBounds.max.y + 1f, wz);
+                    RaycastHit[] hits = Physics.RaycastAll(rayOrigin, Vector3.down,
+                        localBounds.size.y + 2f, layerMask);
+
+                    System.Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
+
+                    bool inside = false;
+                    int hitIndex = 0;
+
+                    for (int y = usableSize - 1; y >= 0; y--)
+                    {
+                        float wy = localBounds.min.y + (y + 0.5f) * cellSize.y;
+
+                        while (hitIndex < hits.Length && hits[hitIndex].point.y > wy)
+                        {
+                            inside = !inside;
+                            hitIndex++;
+                        }
+
+                        Vector3 cellCenter = new Vector3(wx, wy, wz);
+                        Vector3 delta = cellCenter - drillContactPoint;
+                        if (Mathf.Abs(delta.x) > roiRadius -0.02f ||
+                            Mathf.Abs(delta.y) > roiRadius ||
+                            Mathf.Abs(delta.z) > roiRadius -0.02f)
+                            continue;
+
+                        if (inside)
+                        {
+                            voxels[x + padding, y + padding, z + padding] = -1f;
+                            solidCount++;
+                        }
+                    }
+                }
+
+                yield return null;
+            }
+
+            Debug.Log($"FillVoxelsAsync complete. Solid voxels: {solidCount}");
+            Destroy(temp);
+        }
+
+        private void RescaleVerts(List<Vector3> verts)
+        {
+            int padding = 1;
+            int usableSize = gridSize - padding * 2;
 
             for (int i = 0; i < verts.Count; i++)
             {
                 Vector3 v = verts[i];
                 v -= new Vector3(padding, padding, padding);
-                v.x = (v.x / usableW) * bounds.size.x;
-                v.y = (v.y / usableH) * bounds.size.y;
-                v.z = (v.z / usableD) * bounds.size.z;
+                v.x = (v.x / usableSize) * localBounds.size.x;
+                v.y = (v.y / usableSize) * localBounds.size.y;
+                v.z = (v.z / usableSize) * localBounds.size.z;
+                // No localBounds.min offset — the GameObject is positioned
+                // at localBounds.min so verts are in its local space
                 verts[i] = v;
             }
         }
-        private void Update()
+
+        private GameObject CreateMeshObject(string objName, List<Vector3> verts,
+            List<Vector3> normals, List<int> indices, Material mat, bool flipNormals = false)
         {
-            #if Unity_Editor
-             if (Input.GetKeyDown(KeyCode.V))
-                FindObjectOfType<VoxelizationQueue>().Enqueue(this);
-            #endif
+            Mesh mesh = new Mesh();
+            mesh.indexFormat = IndexFormat.UInt32;
+            mesh.SetVertices(verts);
+
+            if (flipNormals)
+            {
+                var flipped = new int[indices.Count];
+                for (int i = 0; i < indices.Count; i += 3)
+                {
+                    flipped[i] = indices[i + 2];
+                    flipped[i + 1] = indices[i + 1];
+                    flipped[i + 2] = indices[i];
+                }
+                mesh.SetTriangles(flipped, 0);
+            }
+            else
+            {
+                mesh.SetTriangles(indices, 0);
+            }
+
+            mesh.RecalculateNormals();
+            mesh.RecalculateBounds();
+
+            GameObject go = new GameObject(objName);
+            go.transform.SetParent(transform);
+            // Verts are in local space starting at (0,0,0), so place
+            // the GameObject at localBounds.min to bring them to world space
+            go.transform.position = localBounds.min;
+            go.transform.rotation = Quaternion.identity;
+            go.transform.localScale = Vector3.one;
+
+            go.AddComponent<MeshFilter>().mesh = mesh;
+            go.AddComponent<MeshRenderer>().material = mat;
+
+            var rb = go.AddComponent<Rigidbody>();
+            rb.isKinematic = true;
+
+            var reference = go.AddComponent<VoxelPatchReference>();
+            reference.model = this;
+
+            meshes.Add(go);
+            return go;
         }
-        public void Drill(Vector3 worldPos, float worldRadius)
+        private bool _isRegenerating = false;
+        private IEnumerator RegenerateMesh()
         {
-            Debug.Log($"Drill() called at worldPos: {worldPos}, modelBounds.min: {modelBounds.min}, modelBounds.size: {modelBounds.size}");
-
-            int padding = 1;
-            int usableW = width - padding * 2;
-            int usableH = height - padding * 2;
-            int usableD = depth - padding * 2;
-
-            float voxelRadius = (worldRadius / modelBounds.size.x) * usableW;
-
-            Vector3 localPos = worldPos - modelBounds.min;
-            float vx = (localPos.x / modelBounds.size.x) * usableW + padding;
-            float vy = (localPos.y / modelBounds.size.y) * usableH + padding;
-            float vz = (localPos.z / modelBounds.size.z) * usableD + padding;
-
-            int minX = Mathf.Max(0, Mathf.FloorToInt(vx - voxelRadius));
-            int maxX = Mathf.Min(width - 1, Mathf.CeilToInt(vx + voxelRadius));
-            int minY = Mathf.Max(0, Mathf.FloorToInt(vy - voxelRadius));
-            int maxY = Mathf.Min(height - 1, Mathf.CeilToInt(vy + voxelRadius));
-            int minZ = Mathf.Max(0, Mathf.FloorToInt(vz - voxelRadius));
-            int maxZ = Mathf.Min(depth - 1, Mathf.CeilToInt(vz + voxelRadius));
-
-            bool changed = false;
-
-            for (int x = minX; x <= maxX; x++)
-                for (int y = minY; y <= maxY; y++)
-                    for (int z = minZ; z <= maxZ; z++)
-                    {
-                        float dx = x - vx, dy = y - vy, dz = z - vz;
-                        if (dx * dx + dy * dy + dz * dz <= voxelRadius * voxelRadius)
-                        {
-                            if (voxels[x, y, z] < 0f)
-                            {
-                                voxels[x, y, z] = 1.0f;
-                                changed = true;
-                            }
-                        }
-                    }
-
-            if (changed)
-                RegenerateMesh();
-        }
-
-        private void RegenerateMesh()
-        {
+            if (_isRegenerating) yield break;
+            _isRegenerating = true;
             Marching marching = mode == MARCHING_MODE.TETRAHEDRON
                 ? (Marching)new MarchingTertrahedron()
                 : new MarchingCubes();
@@ -206,92 +323,89 @@ namespace MarchingCubesProject
             var indices = new List<int>();
 
             marching.Generate(voxels.Voxels, verts, indices);
+            RescaleVerts(verts);
 
-            RescaleVerts(verts, modelBounds);
+            UpdateMesh(drillableMeshFilter, verts, indices, flipNormals: false);
 
-            Mesh mesh = new Mesh();
-            mesh.indexFormat = IndexFormat.UInt32;
-            mesh.SetVertices(verts);
-            mesh.SetTriangles(indices, 0);
-            mesh.RecalculateNormals();
-            mesh.RecalculateBounds();
+            // Interior patch is a sibling at scene root, not a child —
+            // find it by name in the meshes list
+            foreach (var go in meshes)
+            {
+                if (go != null && go.name == "VoxelPatch_Interior")
+                {
+                    var interiorFilter = go.GetComponent<MeshFilter>();
+                    if (interiorFilter != null)
+                        UpdateMesh(interiorFilter, verts, indices, flipNormals: false);
+                    break;
+                }
+            }
 
-            drillableMeshFilter.mesh = mesh;
+            yield return null;
 
-            // Force the collider to fully reset rather than just updating sharedMesh
             var col = drillableMeshFilter.GetComponent<MeshCollider>();
             if (col != null)
             {
                 col.sharedMesh = null;
-                col.sharedMesh = mesh;
+                col.sharedMesh = drillableMeshFilter.mesh;
             }
+            _isRegenerating = false;
+
         }
 
-        private bool EnsureMeshCollider(GameObject root)
+        private void UpdateMesh(MeshFilter mf, List<Vector3> verts, List<int> indices, bool flipNormals)
         {
-            bool added = false;
-            foreach (var mf in root.GetComponentsInChildren<MeshFilter>())
-            {
-                var existing = mf.GetComponent<MeshCollider>();
-                if (existing == null)
-                {
-                    var mc = mf.gameObject.AddComponent<MeshCollider>();
-                    mc.sharedMesh = mf.sharedMesh;
-                }
-                // Mark for cleanup regardless — PoseToVoxel added it, we should remove it
-                added = true;
-            }
-            return added;
-        }
-
-        private void RemoveTemporaryColliders(GameObject root)
-        {
-            foreach (var mc in root.GetComponentsInChildren<MeshCollider>())
-                Destroy(mc);
-        }
-
-        private Bounds GetCompoundBounds(GameObject root)
-        {
-            var renderers = root.GetComponentsInChildren<Renderer>();
-            if (renderers.Length == 0) return new Bounds(root.transform.position, Vector3.one);
-
-            Bounds b = renderers[0].bounds;
-            for (int i = 1; i < renderers.Length; i++)
-                b.Encapsulate(renderers[i].bounds);
-            return b;
-        }
-
-        private GameObject CreateMesh32(List<Vector3> verts, List<Vector3> normals, List<int> indices, Vector3 position)
-        {
-            Mesh mesh = new Mesh();
+            Mesh mesh = mf.mesh;
+            mesh.Clear();
             mesh.indexFormat = IndexFormat.UInt32;
             mesh.SetVertices(verts);
-            mesh.SetTriangles(indices, 0);
 
-            if (normals.Count > 0) mesh.SetNormals(normals);
-            else mesh.RecalculateNormals();
+            if (flipNormals)
+            {
+                var flipped = new int[indices.Count];
+                for (int i = 0; i < indices.Count; i += 3)
+                {
+                    flipped[i] = indices[i + 2];
+                    flipped[i + 1] = indices[i + 1];
+                    flipped[i + 2] = indices[i];
+                }
+                mesh.SetTriangles(flipped, 0);
+            }
+            else
+            {
+                mesh.SetTriangles(indices, 0);
+            }
 
+            mesh.RecalculateNormals();
             mesh.RecalculateBounds();
-
-            GameObject go = new GameObject("Mesh");
-            go.transform.parent = transform;
-            go.AddComponent<MeshFilter>();
-            go.AddComponent<MeshRenderer>();
-            go.GetComponent<Renderer>().material = material;
-            go.GetComponent<MeshFilter>().mesh = mesh;
-            go.transform.localPosition = position;
-
-            meshes.Add(go);
-            return go;
         }
 
-        private void OnRenderObject()
+        private void UpdateClipShader()
         {
-            if (normalRenderer != null && meshes.Count > 0 && drawNormals)
-            {
-                normalRenderer.LocalToWorld = meshes[0].transform.localToWorldMatrix;
-                normalRenderer.Draw();
-            }
+            if (_skinnedRenderers == null) return;
+            foreach (var smr in _skinnedRenderers)
+                foreach (var mat in smr.materials)
+                {
+                    if (mat.HasProperty("_ClipCenter"))
+                        mat.SetVector("_ClipCenter", drillContactPoint);
+                    if (mat.HasProperty("_ClipRadius"))
+                        mat.SetFloat("_ClipRadius", roiRadius - clipRadiusOffset);
+                }
+        }
+
+        public void RestoreSkinnedMesh()
+        {
+            if (_skinnedRenderers != null)
+                foreach (var smr in _skinnedRenderers)
+                    smr.enabled = true;
+
+            if (_animator != null)
+                _animator.enabled = true;
+
+            foreach (var go in meshes)
+                Destroy(go);
+
+            meshes.Clear();
+            IsReady = false;
         }
     }
 }
