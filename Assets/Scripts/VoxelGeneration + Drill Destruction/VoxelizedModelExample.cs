@@ -200,7 +200,6 @@ namespace MarchingCubesProject
             {
                 for (int z = 0; z < usableSize; z++)
                 {
-                    // World position of this column — matches Drill() calculation exactly
                     float wx = localBounds.min.x + (x + 0.5f) * cellSize.x;
                     float wz = localBounds.min.z + (z + 0.5f) * cellSize.z;
 
@@ -215,7 +214,6 @@ namespace MarchingCubesProject
 
                     for (int y = usableSize - 1; y >= 0; y--)
                     {
-                        // World Y of this voxel — matches Drill() calculation exactly
                         float wy = localBounds.min.y + (y + 0.5f) * cellSize.y;
 
                         while (hitIndex < hits.Length && hits[hitIndex].point.y > wy)
@@ -225,7 +223,10 @@ namespace MarchingCubesProject
                         }
 
                         Vector3 cellCenter = new Vector3(wx, wy, wz);
-                        if (Vector3.Distance(cellCenter, drillContactPoint) > roiRadius)
+                        Vector3 delta = cellCenter - drillContactPoint;
+                        if (Mathf.Abs(delta.x) > roiRadius -0.02f ||
+                            Mathf.Abs(delta.y) > roiRadius ||
+                            Mathf.Abs(delta.z) > roiRadius -0.02f)
                             continue;
 
                         if (inside)
