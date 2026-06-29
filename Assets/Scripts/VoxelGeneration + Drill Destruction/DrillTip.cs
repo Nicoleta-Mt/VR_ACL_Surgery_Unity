@@ -12,6 +12,7 @@ public class DrillTip : MonoBehaviour
 
     private void OnTriggerEnter(Collider other)
     {
+        Debug.Log($"OnTriggerEnter fired on: {other.gameObject.name}");
         var poseToVoxel = other.GetComponentInParent<PoseToVoxel>();
         if (poseToVoxel == null) return;
 
@@ -36,8 +37,24 @@ public class DrillTip : MonoBehaviour
         if (model != null && model.IsReady)
         {
             Vector3 contactPoint = other.ClosestPoint(transform.position);
-            drillBit.OnTipContact(model, contactPoint);
-            Debug.Log($"Contact point: {contactPoint}, drill tip: {transform.position}");
+
+            // Only update contact if this model is closer than the current one
+            drillBit.OnTipContact(model, contactPoint, transform.position);
         }
+    }
+    private void OnTriggerExit(Collider other)
+    {
+        var model = other.GetComponentInParent<VoxelizedModelExample>()
+                 ?? other.GetComponent<VoxelizedModelExample>();
+
+        if (model == null)
+        {
+            var reference = other.GetComponent<VoxelPatchReference>();
+            if (reference != null)
+                model = reference.model;
+        }
+
+        if (model != null)
+            drillBit.OnTipExit();
     }
 }
