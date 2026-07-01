@@ -27,17 +27,21 @@ using TMPro;
 /// </summary>
 public class SimulationRecorder : MonoBehaviour
 {
+    [Header("Tracking Reference")]
+    [Tooltip("The point used for accuracy/jitter/trail recording. Should be the arthroscope tip, not the body/grip.")]
+    public Transform tip;
+
     [Header("Waypoints (forms the ideal path line)")]
     public List<Transform> waypoints = new List<Transform>();
 
     [Header("Participant Info")]
     public string participantName = "Participant";
-    public string simulationType  = "Arthroscope";
+    public string simulationType = "Arthroscope";
 
     [Header("Ghost Settings")]
     public Color participantGhostColor = new Color(1f, 0.4f, 0.1f, 1f);
-    public Color idealGhostColor       = new Color(0.1f, 1f, 0.3f, 1f);
-    public float lineWidth             = 0.003f;
+    public Color idealGhostColor = new Color(0.1f, 1f, 0.3f, 1f);
+    public float lineWidth = 0.003f;
 
     [Tooltip("Only record a trail point when within this distance of the path.")]
     public float proximityThreshold = 0.15f;
@@ -55,7 +59,7 @@ public class SimulationRecorder : MonoBehaviour
     public bool destroyLegOnReview = false;
 
     [Header("Review UI")]
-    public Canvas   reviewCanvas;
+    public Canvas reviewCanvas;
     public TMP_Text scoreText;
     public TMP_Text statsText;
     public TMP_Text participantText;
@@ -63,15 +67,15 @@ public class SimulationRecorder : MonoBehaviour
     // ── private ────────────────────────────────────────────────────────────────
 
     private List<Vector3> _trailPoints = new List<Vector3>();
-    private bool          _isRecording = false;
-    private float         _recordTimer = 0f;
-    private float         _sessionStart;
+    private bool _isRecording = false;
+    private float _recordTimer = 0f;
+    private float _sessionStart;
 
-    private float   _maxDeviation    = 0f;
-    private float   _totalDeviation  = 0f;
-    private int     _metricFrames    = 0;
-    private float   _maxPathProgress = 0f;
-    private float   _totalJitter     = 0f;
+    private float _maxDeviation = 0f;
+    private float _totalDeviation = 0f;
+    private int _metricFrames = 0;
+    private float _maxPathProgress = 0f;
+    private float _totalJitter = 0f;
     private Vector3 _lastPosition;
 
     private GameObject _participantGhost;
@@ -104,14 +108,14 @@ public class SimulationRecorder : MonoBehaviour
     public void StartRecording()
     {
         _trailPoints.Clear();
-        _isRecording     = true;
-        _sessionStart    = Time.time;
-        _maxDeviation    = 0f;
-        _totalDeviation  = 0f;
-        _metricFrames    = 0;
+        _isRecording = true;
+        _sessionStart = Time.time;
+        _maxDeviation = 0f;
+        _totalDeviation = 0f;
+        _metricFrames = 0;
         _maxPathProgress = 0f;
-        _totalJitter     = 0f;
-        _lastPosition    = transform.position;
+        _totalJitter = 0f;
+        _lastPosition = tip != null ? tip.position : transform.position;
 
         ClearGhosts();
         if (reviewCanvas != null)
@@ -151,14 +155,14 @@ public class SimulationRecorder : MonoBehaviour
     public void ClearGhosts()
     {
         if (_participantGhost != null) Destroy(_participantGhost);
-        if (_idealGhost       != null) Destroy(_idealGhost);
+        if (_idealGhost != null) Destroy(_idealGhost);
     }
 
     // ── Metrics ────────────────────────────────────────────────────────────────
 
     void TrackMetrics()
     {
-        Vector3 pos = transform.position;
+        Vector3 pos = tip != null ? tip.position : transform.position;
 
         // Jitter: how fast position changed since last sample (smoothness signal).
         float jitter = Vector3.Distance(pos, _lastPosition) / Mathf.Max(recordInterval, 0.0001f);
@@ -168,12 +172,12 @@ public class SimulationRecorder : MonoBehaviour
 
         if (waypoints.Count < 2) return;
 
-        float t         = GetClosestT(pos);
+        float t = GetClosestT(pos);
         float deviation = Vector3.Distance(pos, GetPathPos(t));
 
         _totalDeviation += deviation;
-        if (deviation > _maxDeviation) _maxDeviation    = deviation;
-        if (t > _maxPathProgress)      _maxPathProgress = t;
+        if (deviation > _maxDeviation) _maxDeviation = deviation;
+        if (t > _maxPathProgress) _maxPathProgress = t;
 
         // Only keep trail points close to the ideal line, to keep the ghost
         // readable instead of tracing every bit of stray movement.
@@ -185,24 +189,24 @@ public class SimulationRecorder : MonoBehaviour
 
     SimulationDatabase.SessionResult BuildResult()
     {
-        float duration     = Time.time - _sessionStart;
+        float duration = Time.time - _sessionStart;
         float avgDeviation = _metricFrames > 0 ? _totalDeviation / _metricFrames : 0f;
-        float avgJitter    = _metricFrames > 0 ? _totalJitter    / _metricFrames : 0f;
+        float avgJitter = _metricFrames > 0 ? _totalJitter / _metricFrames : 0f;
 
-        float accuracyScore   = Mathf.Clamp01(1f - (avgDeviation / 0.15f)) * 50f;
-        float smoothnessScore = Mathf.Clamp01(1f - (avgJitter    / 0.5f))  * 20f;
+        float accuracyScore = Mathf.Clamp01(1f - (avgDeviation / 0.15f)) * 50f;
+        float smoothnessScore = Mathf.Clamp01(1f - (avgJitter / 0.5f)) * 20f;
         float completionScore = _maxPathProgress * 30f;
 
         return new SimulationDatabase.SessionResult
         {
-            participantName       = participantName,
-            simulationType        = simulationType,
-            totalDuration         = duration,
-            averagePathDeviation  = avgDeviation,
-            maxPathDeviation      = _maxDeviation,
-            completionPercent     = _maxPathProgress * 100f,
-            averageJitter         = avgJitter,
-            overallScore          = accuracyScore + smoothnessScore + completionScore
+            participantName = participantName,
+            simulationType = simulationType,
+            totalDuration = duration,
+            averagePathDeviation = avgDeviation,
+            maxPathDeviation = _maxDeviation,
+            completionPercent = _maxPathProgress * 100f,
+            averageJitter = avgJitter,
+            overallScore = accuracyScore + smoothnessScore + completionScore
         };
     }
 
@@ -213,8 +217,8 @@ public class SimulationRecorder : MonoBehaviour
         if (_trailPoints.Count >= 2)
         {
             _participantGhost = new GameObject("ParticipantGhost");
-            LineRenderer lr   = _participantGhost.AddComponent<LineRenderer>();
-            lr.positionCount  = _trailPoints.Count;
+            LineRenderer lr = _participantGhost.AddComponent<LineRenderer>();
+            lr.positionCount = _trailPoints.Count;
             for (int i = 0; i < _trailPoints.Count; i++)
                 lr.SetPosition(i, _trailPoints[i]);
             SetupLine(lr, participantGhostColor);
@@ -222,8 +226,8 @@ public class SimulationRecorder : MonoBehaviour
 
         if (waypoints.Count >= 2)
         {
-            _idealGhost      = new GameObject("IdealGhost");
-            LineRenderer lr  = _idealGhost.AddComponent<LineRenderer>();
+            _idealGhost = new GameObject("IdealGhost");
+            LineRenderer lr = _idealGhost.AddComponent<LineRenderer>();
             lr.positionCount = waypoints.Count;
             for (int i = 0; i < waypoints.Count; i++)
                 lr.SetPosition(i, waypoints[i].position);
@@ -233,14 +237,14 @@ public class SimulationRecorder : MonoBehaviour
 
     void SetupLine(LineRenderer lr, Color color)
     {
-        lr.startWidth        = lineWidth;
-        lr.endWidth          = lineWidth;
-        lr.useWorldSpace     = true;
+        lr.startWidth = lineWidth;
+        lr.endWidth = lineWidth;
+        lr.useWorldSpace = true;
         lr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-        lr.receiveShadows    = false;
-        Material mat         = new Material(Shader.Find("Unlit/Color"));
-        mat.color            = color;
-        lr.material          = mat;
+        lr.receiveShadows = false;
+        Material mat = new Material(Shader.Find("Unlit/Color"));
+        mat.color = color;
+        lr.material = mat;
     }
 
     // ── Review UI ──────────────────────────────────────────────────────────────
@@ -258,10 +262,10 @@ public class SimulationRecorder : MonoBehaviour
 
         if (statsText != null)
             statsText.text =
-                $"Duration:      {result.totalDuration:F1}s\n"               +
-                $"Completion:    {result.completionPercent:F1}%\n"            +
+                $"Duration:      {result.totalDuration:F1}s\n" +
+                $"Completion:    {result.completionPercent:F1}%\n" +
                 $"Avg Deviation: {result.averagePathDeviation * 100f:F1}cm\n" +
-                $"Max Deviation: {result.maxPathDeviation     * 100f:F1}cm\n" +
+                $"Max Deviation: {result.maxPathDeviation * 100f:F1}cm\n" +
                 $"Smoothness:    {Mathf.Clamp01(1f - result.averageJitter / 0.5f) * 100f:F1}%";
     }
 
@@ -272,20 +276,20 @@ public class SimulationRecorder : MonoBehaviour
         if (waypoints.Count == 0) return Vector3.zero;
         if (waypoints.Count == 1) return waypoints[0].position;
         float scaled = t * (waypoints.Count - 1);
-        int   a      = Mathf.FloorToInt(scaled);
-        int   b      = Mathf.Min(a + 1, waypoints.Count - 1);
+        int a = Mathf.FloorToInt(scaled);
+        int b = Mathf.Min(a + 1, waypoints.Count - 1);
         return Vector3.Lerp(waypoints[a].position, waypoints[b].position, scaled - a);
     }
 
     float GetClosestT(Vector3 pos)
     {
         if (waypoints.Count < 2) return 0f;
-        float bestT    = 0f;
+        float bestT = 0f;
         float bestDist = float.MaxValue;
-        int   steps    = (waypoints.Count - 1) * 10;
+        int steps = (waypoints.Count - 1) * 10;
         for (int i = 0; i <= steps; i++)
         {
-            float t    = (float)i / steps;
+            float t = (float)i / steps;
             float dist = Vector3.Distance(pos, GetPathPos(t));
             if (dist < bestDist) { bestDist = dist; bestT = t; }
         }

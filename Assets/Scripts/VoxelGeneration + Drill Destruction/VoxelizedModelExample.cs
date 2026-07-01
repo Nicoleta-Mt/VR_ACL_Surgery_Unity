@@ -12,16 +12,20 @@ namespace MarchingCubesProject
     {
         [Header("Materials")]
         public Material material;
-        public Material interiorMaterial;
 
         [Header("Marching Cubes")]
         public MARCHING_MODE mode = MARCHING_MODE.CUBES;
         public bool smoothNormals = false;
 
         [Header("Local Voxel Grid")]
-        public int gridSize = 24;
-        public float roiRadius = 0.08f;
+        public int gridSize = 48;
+        public float roiRadius = 0.06f;
+        public float roiDepth = 0.06f;
         public float clipRadiusOffset = 0.01f;
+
+        [Header("Voxel Boundary Colliders")]
+        public CapsuleCollider[] outerColliders;
+        public CapsuleCollider[] innerColliders;
 
         public bool IsReady { get; private set; } = false;
 
@@ -55,16 +59,16 @@ namespace MarchingCubesProject
         {
             IsReady = false;
 
-            if (bakedMesh == null)
+            if (outerColliders == null || outerColliders.Length == 0)
             {
-                Debug.LogError("VoxelizedModelExample: bakedMesh is null.");
+                Debug.LogError("VoxelizedModelExample: no outer colliders assigned.");
                 yield break;
             }
 
-            localBounds = new Bounds(drillContactPoint, Vector3.one * roiRadius * 2f);
+            localBounds = new Bounds(drillContactPoint,
+                new Vector3(roiRadius * 2f, roiRadius * 2f, roiDepth * 2f));
             voxels = new VoxelArray(gridSize, gridSize, gridSize);
 
-            yield return new WaitForFixedUpdate();
             yield return FillVoxelsAsync();
 
             var verts = new List<Vector3>();
@@ -97,9 +101,8 @@ namespace MarchingCubesProject
             col.sharedMesh = drillableMeshFilter.mesh;
             Debug.Log($"MeshCollider assigned. Verts: {drillableMeshFilter.mesh.vertexCount}");
 
-            if (interiorMaterial != null)
-                CreateMeshObject("VoxelPatch_Interior", verts, normals, indices, interiorMaterial, flipNormals: false);
-
+            // Update clip shader using the baked skinned renderers so the
+            // original model is hidden in the drilled region
             UpdateClipShader();
 
             IsReady = true;
@@ -144,7 +147,6 @@ namespace MarchingCubesProject
                         if (voxels[x + padding, y + padding, z + padding] >= 0f)
                             continue;
 
-                        // localBounds.min is already world-space, so this is world-space too
                         Vector3 voxelWorld = localBounds.min + new Vector3(
                             (x + 0.5f) * cellSize.x,
                             (y + 0.5f) * cellSize.y,
@@ -162,6 +164,57 @@ namespace MarchingCubesProject
         }
 
         // ─────────────────────────────────────────────────────────────
+        // Capsule region checks
+        // ─────────────────────────────────────────────────────────────
+
+        private bool IsInSolidRegion(Vector3 worldPos)
+        {
+            // Must be inside at least one outer collider
+            bool insideAnyOuter = false;
+            foreach (var col in outerColliders)
+            {
+                if (col != null && IsInsideCapsule(worldPos, col))
+                {
+                    insideAnyOuter = true;
+                    break;
+                }
+            }
+            if (!insideAnyOuter) return false;
+
+            // Must not be inside any inner collider
+            if (innerColliders != null)
+                foreach (var col in innerColliders)
+                    if (col != null && IsInsideCapsule(worldPos, col))
+                        return false;
+
+            return true;
+        }
+
+        private bool IsInsideCapsule(Vector3 worldPos, CapsuleCollider col)
+        {
+            Vector3 center = col.transform.TransformPoint(col.center);
+            float halfHeight = Mathf.Max(0, col.height * 0.5f - col.radius);
+
+            Vector3 axis = col.direction switch
+            {
+                0 => col.transform.right,
+                1 => col.transform.up,
+                _ => col.transform.forward
+            };
+
+            Vector3 point1 = center + axis * halfHeight;
+            Vector3 point2 = center - axis * halfHeight;
+            float radius = col.radius * col.transform.lossyScale.x;
+
+            // Find the closest point on the capsule axis segment to worldPos
+            Vector3 ab = point2 - point1;
+            float t = Mathf.Clamp01(Vector3.Dot(worldPos - point1, ab) / ab.sqrMagnitude);
+            Vector3 closest = point1 + t * ab;
+
+            return Vector3.Distance(worldPos, closest) <= radius;
+        }
+
+        // ─────────────────────────────────────────────────────────────
         // Private helpers
         // ─────────────────────────────────────────────────────────────
 
@@ -171,64 +224,38 @@ namespace MarchingCubesProject
             int usableSize = gridSize - padding * 2;
             Vector3 cellSize = localBounds.size / usableSize;
 
-            // Default all to empty
+            // Default all voxels to empty
             for (int x = 0; x < gridSize; x++)
                 for (int y = 0; y < gridSize; y++)
                     for (int z = 0; z < gridSize; z++)
                         voxels[x, y, z] = 1f;
 
-            int tempLayer = LayerMask.NameToLayer("TempVoxel");
-            if (tempLayer == -1)
-            {
-                Debug.LogError("TempVoxel layer not found.");
-                yield break;
-            }
-
-            GameObject temp = new GameObject("_TempCollider");
-            temp.layer = tempLayer;
-            temp.AddComponent<MeshFilter>().sharedMesh = bakedMesh;
-            temp.AddComponent<MeshCollider>().sharedMesh = bakedMesh;
-            var rb = temp.AddComponent<Rigidbody>();
-            rb.isKinematic = true;
-
-            yield return new WaitForFixedUpdate();
-
-            int layerMask = 1 << tempLayer;
             int solidCount = 0;
 
+            // Fill voxels that fall within the ROI and inside the solid
+            // wall region defined by outer/inner capsule colliders.
+            // Pure math — no physics cooking or timing issues.
             for (int x = 0; x < usableSize; x++)
             {
-                for (int z = 0; z < usableSize; z++)
+                for (int y = 0; y < usableSize; y++)
                 {
-                    // World position of this column — matches Drill() calculation exactly
-                    float wx = localBounds.min.x + (x + 0.5f) * cellSize.x;
-                    float wz = localBounds.min.z + (z + 0.5f) * cellSize.z;
-
-                    Vector3 rayOrigin = new Vector3(wx, localBounds.max.y + 1f, wz);
-                    RaycastHit[] hits = Physics.RaycastAll(rayOrigin, Vector3.down,
-                        localBounds.size.y + 2f, layerMask);
-
-                    System.Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
-
-                    bool inside = false;
-                    int hitIndex = 0;
-
-                    for (int y = usableSize - 1; y >= 0; y--)
+                    for (int z = 0; z < usableSize; z++)
                     {
-                        // World Y of this voxel — matches Drill() calculation exactly
-                        float wy = localBounds.min.y + (y + 0.5f) * cellSize.y;
+                        Vector3 voxelWorld = localBounds.min + new Vector3(
+                            (x + 0.5f) * cellSize.x,
+                            (y + 0.5f) * cellSize.y,
+                            (z + 0.5f) * cellSize.z);
 
-                        while (hitIndex < hits.Length && hits[hitIndex].point.y > wy)
-                        {
-                            inside = !inside;
-                            hitIndex++;
-                        }
-
-                        Vector3 cellCenter = new Vector3(wx, wy, wz);
-                        if (Vector3.Distance(cellCenter, drillContactPoint) > roiRadius)
+                        // ROI check — limits the voxelized area to a box
+                        // around the contact point
+                        Vector3 delta = voxelWorld - drillContactPoint;
+                        float radialDist = Mathf.Sqrt(delta.x * delta.x + delta.y * delta.y);
+                        if (radialDist > roiRadius || Mathf.Abs(delta.z) > roiDepth)
                             continue;
 
-                        if (inside)
+                        // Capsule check — only mark voxels inside the solid
+                        // wall region defined by the outer/inner colliders
+                        if (IsInSolidRegion(voxelWorld))
                         {
                             voxels[x + padding, y + padding, z + padding] = -1f;
                             solidCount++;
@@ -240,7 +267,6 @@ namespace MarchingCubesProject
             }
 
             Debug.Log($"FillVoxelsAsync complete. Solid voxels: {solidCount}");
-            Destroy(temp);
         }
 
         private void RescaleVerts(List<Vector3> verts)
@@ -255,8 +281,6 @@ namespace MarchingCubesProject
                 v.x = (v.x / usableSize) * localBounds.size.x;
                 v.y = (v.y / usableSize) * localBounds.size.y;
                 v.z = (v.z / usableSize) * localBounds.size.z;
-                // No localBounds.min offset — the GameObject is positioned
-                // at localBounds.min so verts are in its local space
                 verts[i] = v;
             }
         }
@@ -289,8 +313,6 @@ namespace MarchingCubesProject
 
             GameObject go = new GameObject(objName);
             go.transform.SetParent(transform);
-            // Verts are in local space starting at (0,0,0), so place
-            // the GameObject at localBounds.min to bring them to world space
             go.transform.position = localBounds.min;
             go.transform.rotation = Quaternion.identity;
             go.transform.localScale = Vector3.one;
@@ -307,11 +329,13 @@ namespace MarchingCubesProject
             meshes.Add(go);
             return go;
         }
+
         private bool _isRegenerating = false;
         private IEnumerator RegenerateMesh()
         {
             if (_isRegenerating) yield break;
             _isRegenerating = true;
+
             Marching marching = mode == MARCHING_MODE.TETRAHEDRON
                 ? (Marching)new MarchingTertrahedron()
                 : new MarchingCubes();
@@ -326,19 +350,6 @@ namespace MarchingCubesProject
 
             UpdateMesh(drillableMeshFilter, verts, indices, flipNormals: false);
 
-            // Interior patch is a sibling at scene root, not a child —
-            // find it by name in the meshes list
-            foreach (var go in meshes)
-            {
-                if (go != null && go.name == "VoxelPatch_Interior")
-                {
-                    var interiorFilter = go.GetComponent<MeshFilter>();
-                    if (interiorFilter != null)
-                        UpdateMesh(interiorFilter, verts, indices, flipNormals: false);
-                    break;
-                }
-            }
-
             yield return null;
 
             var col = drillableMeshFilter.GetComponent<MeshCollider>();
@@ -347,8 +358,8 @@ namespace MarchingCubesProject
                 col.sharedMesh = null;
                 col.sharedMesh = drillableMeshFilter.mesh;
             }
-            _isRegenerating = false;
 
+            _isRegenerating = false;
         }
 
         private void UpdateMesh(MeshFilter mf, List<Vector3> verts, List<int> indices, bool flipNormals)
@@ -381,6 +392,22 @@ namespace MarchingCubesProject
         private void UpdateClipShader()
         {
             if (_skinnedRenderers == null) return;
+
+            Vector3 innerClipCenter = drillContactPoint;
+
+            // Cast a ray inward along Z from the contact point to find
+            // where it hits the inner wall
+            RaycastHit hit;
+            if (Physics.Raycast(drillContactPoint, Vector3.back, out hit, 1f))
+            {
+                innerClipCenter = hit.point;
+                Debug.Log($"Inner wall hit at: {innerClipCenter}");
+            }
+            else
+            {
+                Debug.LogWarning("Inner wall raycast missed — no second clip placed.");
+            }
+
             foreach (var smr in _skinnedRenderers)
                 foreach (var mat in smr.materials)
                 {
@@ -388,6 +415,10 @@ namespace MarchingCubesProject
                         mat.SetVector("_ClipCenter", drillContactPoint);
                     if (mat.HasProperty("_ClipRadius"))
                         mat.SetFloat("_ClipRadius", roiRadius - clipRadiusOffset);
+                    if (mat.HasProperty("_ClipCenterInner"))
+                        mat.SetVector("_ClipCenterInner", innerClipCenter);
+                    if (mat.HasProperty("_ClipRadiusInner"))
+                        mat.SetFloat("_ClipRadiusInner", roiRadius - clipRadiusOffset);
                 }
         }
 
