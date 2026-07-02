@@ -2344,7 +2344,7 @@ Transform:
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
-  m_Father: {fileID: 1444241164}
+  m_Father: {fileID: 1195697944}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!135 &609225066
 SphereCollider:
@@ -3392,7 +3392,7 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 696045055}
   serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
   m_LocalPosition: {x: 0, y: 0, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
@@ -3414,7 +3414,7 @@ AudioSource:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 919132148791866722}
-  m_Enabled: 0
+  m_Enabled: 1
   serializedVersion: 4
   OutputAudioMixerGroup: {fileID: 0}
   m_audioClip: {fileID: 0}
@@ -3594,7 +3594,7 @@ MonoBehaviour:
   m_ParentInteractableObject: {fileID: 0}
   m_AttachTransform: {fileID: 0}
   m_SecondaryAttachTransform: {fileID: 0}
-  m_UseDynamicAttach: 0
+  m_UseDynamicAttach: 1
   m_MatchAttachPosition: 1
   m_MatchAttachRotation: 1
   m_SnapToColliderVolume: 1
@@ -3713,8 +3713,8 @@ MonoBehaviour:
   waypoints:
   - {fileID: 1688012845}
   - {fileID: 1887924775}
-  participantName: Participant
-  simulationType: Arthroscope
+  participantName: Laszlo
+  simulationType: Drilling
   participantGhostColor: {r: 1, g: 0.4, b: 0.1, a: 1}
   idealGhostColor: {r: 0.1, g: 1, b: 0.3, a: 1}
   lineWidth: 0.003
@@ -4527,21 +4527,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 0a4cfcaebe986e742b0434b36bed6336, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Unity.XR.Interaction.Toolkit.Samples.StarterAssets::SimulationRecorder
-  tip: {fileID: 0}
-  waypoints: []
-  participantName: Participant
-  simulationType: Arthroscope
-  participantGhostColor: {r: 1, g: 0.4, b: 0.1, a: 1}
-  idealGhostColor: {r: 0.1, g: 1, b: 0.3, a: 1}
-  lineWidth: 0.003
-  proximityThreshold: 0.15
-  recordInterval: 0.2
-  legModel: {fileID: 0}
-  destroyLegOnReview: 0
-  reviewCanvas: {fileID: 0}
-  scoreText: {fileID: 0}
-  statsText: {fileID: 0}
-  participantText: {fileID: 0}
 --- !u!114 &1066900120
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -4554,7 +4539,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: b9805076e9936234a8375149ab645596, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Unity.XR.Interaction.Toolkit.Samples.StarterAssets::EndoscopePathGuide
-  knee: {fileID: 0}
+  knee: {fileID: 662141773}
   waypoints:
   - {fileID: 1799115352}
   - {fileID: 1554246386}
@@ -4642,7 +4627,7 @@ MonoBehaviour:
   m_ParentInteractableObject: {fileID: 0}
   m_AttachTransform: {fileID: 0}
   m_SecondaryAttachTransform: {fileID: 0}
-  m_UseDynamicAttach: 0
+  m_UseDynamicAttach: 1
   m_MatchAttachPosition: 1
   m_MatchAttachRotation: 1
   m_SnapToColliderVolume: 1
@@ -4731,10 +4716,12 @@ MonoBehaviour:
   m_GameObject: {fileID: 1066900116}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 36049ee9998e8fc46b51eb2a8d1b7b36, type: 3}
+  m_Script: {fileID: 11500000, guid: 91c3d8566d908074289c9ba58bebc239, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::KeepScopeInsideZone
-  allowedZone: {fileID: 1823112014}
+  m_EditorClassIdentifier: Assembly-CSharp::ArthroscopeTipBoundary
+  boundaryCenter: {fileID: 667991784}
+  boundaryRadius: 0.08
+  tip: {fileID: 453518124}
 --- !u!1001 &1114729004
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -4926,7 +4913,7 @@ MonoBehaviour:
       m_Interactions: 
       m_SingletonActionBindings: []
       m_Flags: 0
-    m_Reference: {fileID: 7904272356298805229, guid: c348712bda248c246b8c49b3db54643f, type: 3}
+    m_Reference: {fileID: -1758520528963094988, guid: c348712bda248c246b8c49b3db54643f, type: 3}
   handAnimator: {fileID: 1186319632}
 --- !u!1 &1188324420
 GameObject:
@@ -5087,6 +5074,7 @@ Transform:
   m_Children:
   - {fileID: 424739389}
   - {fileID: 1186319630}
+  - {fileID: 609225065}
   m_Father: {fileID: 1444241164}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!114 &1195697945
@@ -5115,7 +5103,7 @@ MonoBehaviour:
       m_Interactions: 
       m_SingletonActionBindings: []
       m_Flags: 0
-    m_Reference: {fileID: -4441903561031843679, guid: c348712bda248c246b8c49b3db54643f, type: 3}
+    m_Reference: {fileID: -3326005586356538449, guid: c348712bda248c246b8c49b3db54643f, type: 3}
   m_RotationInput:
     m_UseReference: 1
     m_Action:
@@ -5761,7 +5749,6 @@ Transform:
   - {fileID: 82180295}
   - {fileID: 54026232}
   - {fileID: 1195697944}
-  - {fileID: 609225065}
   m_Father: {fileID: 443790654}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1537612998
@@ -7483,9 +7470,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d2f1fe03c6a1f644ca26eb83b31b6fbb, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::PoseToVoxel
-  voxelizer: {fileID: 0}
-  sourceMeshFilter: {fileID: 0}
-  voxelizationQueue: {fileID: 0}
 --- !u!4 &2052099680
 Transform:
   m_ObjectHideFlags: 0
@@ -8085,8 +8069,8 @@ Transform:
   m_ConstrainProportionsScale: 0
   m_Children:
   - {fileID: 1441602642}
-  - {fileID: 696045056}
   - {fileID: 455701875}
+  - {fileID: 696045056}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!4 &649519988037353816
