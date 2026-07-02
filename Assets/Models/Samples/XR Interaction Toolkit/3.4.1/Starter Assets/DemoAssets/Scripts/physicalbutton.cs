@@ -17,7 +17,6 @@ public class PhysicalButton : MonoBehaviour
     public AudioClip clickSound;
 
     // ── private ────────────────────────────────────────────────────────────────
-
     private XRSimpleInteractable _interactable;
     private Renderer _renderer;
     private AudioSource _audio;
@@ -31,12 +30,12 @@ public class PhysicalButton : MonoBehaviour
         _audio = GetComponent<AudioSource>();
         _originalPosition = transform.localPosition;
 
-        // Set initial color
+        // Set initial color — reuse the existing material/shader (whatever
+        // render pipeline the project uses) instead of replacing it with
+        // Shader.Find("Standard"), which returns null (and renders pink)
+        // under URP/HDRP.
         if (_renderer != null)
-        {
-            _renderer.material = new Material(Shader.Find("Standard"));
             _renderer.material.color = normalColor;
-        }
 
         // Hook up events
         if (_interactable != null)
